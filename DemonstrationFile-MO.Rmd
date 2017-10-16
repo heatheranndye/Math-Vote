@@ -1,5 +1,5 @@
 ---
-title: "Do it yourself"
+title: "Using R and Excel to analyze gerrymandering"
 author: "Heather Dye"
 date: "October 15, 2017"
 output:
@@ -10,9 +10,24 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+## Background
+
+This demonstration file was developed at the Geometry of Redistricting Conference in Wisconsin. <https://sites.google.com/site/georedistrictingwisc/>
+Special thanks to the organizers!
+
+Background information about gerrymandering and measures of compactness are available in this paper: <https://polmeth.polisci.wisc.edu/Papers/compact.pdf>
+The area formula defined in the paper is a variation of Heron's formula.
+
+Background information about spatial mapping in R and the regeos package is available in the following sources.
+<https://github.com/Robinlovelace/Creating-maps-in-R>
+<https://cran.rstudio.com/web/packages/rgeos/rgeos.pdf>
+
+The goal of this tutorial is to provide enough background so that a person with minimal coding experience in R and a general education course in statistics can study gerrymandering in their own community.
+
 ## Software
 
-Excel, Rstudio, and tabula to convert pdfs to csv files.
+The software that I used included
+Excel, Rstudio, and a program called tabula to convert pdfs to csv files.
 Tabula: <http://tabula.technology/>
 
 R packages:  
@@ -22,8 +37,7 @@ library(geosphere)
 library(rgdal)
 library(rgeos)
 library(ggmap)
-library(plyr)
-library(tidyr)
+#library(tidyr)
 library(dplyr)
 library(tmap)
 ```
@@ -31,18 +45,19 @@ library(tmap)
 
 ## Shapefiles
 
+In this demonstration, I used shapefiles that describe the outline of Missouri's congressional districts as "spatial polygons" with attached data. 
+
 Missouri: <http://geoportal.missouri.edu/geoportal/catalog/search/search.page>
 
-Illinois: <http://www.ilhousedems.com/redistricting/?page_id=554>
 
-The missouri shapefiles are stored in a folder in the working directory called "MO_2016_TIGER_115th_Congressional_Districts_shp ". One potential problem is not setting the projection co-ordinates. Check that the shape file's co-ordinates are being correctly projected. 
+The missouri shapefiles are stored in a folder in the working directory called "MO_2016_TIGER_115th_Congressional_Districts_shp ". One problem that I experienced was that the projection co-ordinates were not correctly set. The projection co-ordinates (CRS) need to be set to mercator or longitude in order to compute area. Check that the shape file's co-ordinates are being correctly projected. 
 ```{r shapes, message=FALSE}
 mo<-readOGR(dsn="MO_2016_TIGER_115th_Congressional_Districts_shp", layer ="MO_2016_TIGER_115th_Congressional_Districts_shp")
 
 plot(mo)
 proj4string(mo)
 ```
-This is where you check that the shapefile is equipped with a method of projection (Coordinate Reference System), and fix it if needed. I wound up switching between two methods to do the computations
+This command checks that the shapefile is equipped with a method of projection (Coordinate Reference System). In the next command, I set the CRS. I wound up switching between two methods of projection to do the computations
 ```{r assignproj, message=FALSE}
 mo<-spTransform(mo, CRS=CRS("+proj=merc +ellps=GRS80 +units=us-mi"))
 
@@ -50,7 +65,8 @@ proj4string(mo)
 ```
 
 
-The information included in the data files includes several data fields. We can strip off an individual district and examine it. 
+The information included in the data files includes several data fields. We can strip off an individual district and examine it using commands from dplyr. In Rstudio, the command
+View(mo1) will set up a data table for you to inspect. 
 ```{r shapes2}
 mo1<-mo[mo@data$CD115FP == "01", ]
 head(mo1@data)
@@ -59,7 +75,7 @@ plot(mo1)
 View(mo1@data)
 ```
 
-The following commands are samples of the commands used to add in some of the compactness measures to the data frame. To compute perimeter, I had to convert to a longitude/lattitude. To compute area, I need to a mercator project. The majority of the commands are from rgeos. 
+The following commands are samples of the commands that I used to to compute compactness measures. To compute area using gArea, you need to access the invidual entries in the dat frame "mo".  Using rgeos, the spatial commands required a mercator projection. The majority of the commands are from rgeos. To compute perimeter, I had to convert to a longitude/lattitude 
 
 ```{r compactness}
 mo1latlong<-spTransform(mo1,CRS = CRS("+proj=longlat"))
@@ -70,7 +86,18 @@ gCentroid(mo1)
 gConvexHull(mo1)
 ```
 
-We compute some measures. 
+We compute some measure of compactness and add them to the data frame. The column
+CD115FP identifies the congressional district as a character. I converted this to a numerical value for ease of reference. The Polsby-Popper measure is
+A(D)/P(D)^2. The idea is that a circle would have a score of 1/ 4 Pi:  (Pi r^2)/(2 Pi r)^2. All other shapes would have a lower score. The convex hull measure is a ratio of
+A(D)/A(convexhull(D)). Convex objects would have a score of 1. 
+
+Here is a convex hull demonstration.
+```{r convexhulldemo}
+plot(mo1); plot(gConvexHull(mo1), add=TRUE)
+```
+
+
+
 ```{r polsbypop, message=FALSE}
 mo@data$CD115FP<-as.numeric(mo@data$CD115FP)
 mat<-matrix(numeric(), nrow=max(mo@data$CD115FP), ncol=6)
@@ -89,37 +116,56 @@ mat[i,6]<-mat[i,2]/mat[i,3]}
 print(mat)
 ```
 
-
-Attach the data to the shapefiles
+## Attach the measures to the shapefiles
+Commands from dplyr are used to attach the data to the shapefiles
 
 ```{r attach}
 mat<-data.frame(mat)
 mo@data<-left_join(mo@data, mat, by=c('CD115FP'='cd'))
 mo<-spTransform(mo, CRS=CRS("+proj=longlat"))
-````
+```
 
-Plot some shapefiles with comparative information about the measures.
+## Plot the shapefiles 
+
+The next command plots the shapefiles with comparative information about the measures.
+Additional commands in the Lovelace tutorial can add in background map tiles. 
 
 ```{r plotshapes}
 #qtm(shp=mo, fill="pols", fill.palette ="Blues")
-qtm(shp=mo, fill=c("pols", "hull"), fill.palette="Blues", ncol=2)
+qtm(shp=mo, fill=c("pols", "hull"), fill.palette="Purples", ncol=2)
 ```
 
 ## Adding in census data
 To obtain census data about congressional districts. 
 <https://www.census.gov/mycd/?st=17>
+Votes by county for the presidential election.
+<http://www.cnn.com/election/results/states/missouri#president>
 
-My file is a csv file titled "MissouriCDcensusRace.csv"
+To obtain counties by congressional districts
+<https://www.census.gov/geo/maps-data/data/cd_state.html>
+I did a very minimal amount of data cleaning in Excel - mainly computing totals by congressional district. In the case where a county was split between congressional districts, I simply added the county to one of the congressional districts. 
+The data is stored in  a csv file titled "MissouriCDcensusData.csv"
 ```{r csvfiles}
-morace<-read.csv("MissouriCDCensusRace.csv", header=TRUE)
-morace<-mutate(morace, perwhite=morace$White/morace$Total.population)
+mocensus<-read.csv("MissouriCDCensusData.csv", header=TRUE)
+mocensus<-mutate(mocensus, perwhite=mocensus$White/mocensus$Total.population)
 ```
 
 Now, I attach the data to my shapefile
 ```{r shapes3}
-mo@data<-left_join(mo@data,morace, by=c('CD115FP'='X'))
+mo@data<-left_join(mo@data,mocensus, by=c('CD115FP'='districts'))
 qtm(shp=mo, fill=c("hull", "perwhite"), fill.palette="Blues", ncol=2)
 ```
+
+
+
+Here are the results for the percent of voters who voted Republican in the 2016 election.
+
+```{r votecsvfiles}
+qtm(shp=mo, fill=c("hull", "perRep"), fill.palette="Blues", ncol=2)
+```
+
+#Regression on convex hull measure versus race and voting results
+In the following two code snippets, we examine if there is a significant relationship between the convex hull measure and another variable.
 
 ```{r regression}
 glresults<-lm(mo@data$hull ~ mo@data$perwhite)
@@ -128,17 +174,7 @@ plot(mo@data$perwhite, mo@data$hull)
 abline(glresults)
 ```
 
-Counties by congressional districts
-<https://www.census.gov/geo/maps-data/data/cd_state.html>
-County votes
-<http://www.cnn.com/election/results/states/missouri#president>
 
-## Voting Results 
-```{r votecsvfiles}
-movote<-read.csv("MissouriCDCensusVotes.csv", header=TRUE)
-mo@data<-left_join(mo@data,movote, by=c('CD115FP'='districts'))
-qtm(shp=mo, fill=c("hull", "perRep"), fill.palette="Blues", ncol=2)
-```
 #regression on voting results
 ```{r votesregression}
 lmvotes=lm(mo@data$perRep ~ mo@data$hull)
